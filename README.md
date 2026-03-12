@@ -13,8 +13,7 @@
 │                                                                         │
 │   Wendy           Sahasra              Vishva            Daniil         │
 │  ──────────         ─────────         ─────────        ─────────        │
-│  Intelligence    Static Analysis    LLM Harness     Symbolic Exec       │
-│   Director           Scout           Architect        Specialist        │
+│                 
 │                                                                         │
 │          ▼  Workflow/Build Pipeline Structure  ▼                        │
 │                         Person 5 — Mahima                               │
