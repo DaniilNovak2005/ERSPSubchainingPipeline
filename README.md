@@ -11,13 +11,13 @@
 │  AI Rule Gen   ──►  CodeQL Scan  ──►  LLM Harness ──►  KLEE Prover    │
 │  & Prompts          & Ingestion       Generation        & Correlation   │
 │                                                                         │
-│   Wendy           Sahasra              Vishva            Mahima         │
+│   Wendy           Sahasra              Vishva            Daniil         │
 │  ──────────         ─────────         ─────────        ─────────        │
 │  Intelligence    Static Analysis    LLM Harness     Symbolic Exec       │
 │   Director           Scout           Architect        Specialist        │
 │                                                                         │
 │          ▼  Workflow/Build Pipeline Structure  ▼                        │
-│                         Person 5 — Daniil                               │
+│                         Person 5 — Mahima                               │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -63,7 +63,7 @@
 
 ---
 
-###  Mahima 
+###  Daniil 
 > *Stages 3 & 4*
 
 **Task:** Mathematically prove whether the LLM's harness actually triggers the bug.
@@ -76,7 +76,7 @@
 
 ---
 
-###  Daniil
+###  Mahima
 > *Stage 5*
 
 **Task:** The glue that holds every other role together. Define the contracts, run the show.
@@ -85,7 +85,7 @@
 |------|-------------|
 | Define `VulnerabilityFinding` schema so all roles share identical data types | `src/models.py` |
 | Orchestrate the end-to-end pipeline execution | `src/pipeline.py` |
-| Generate final vulnerability reports | `reports/` |
+| Generate final vulnerability reports, verify LLM did its job | `reports/` |
 
 ---
 
