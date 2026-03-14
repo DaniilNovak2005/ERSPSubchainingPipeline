@@ -11,7 +11,7 @@
 │  AI Rule Gen   ──►  CodeQL Scan  ──►  LLM Harness ──►  KLEE Prover    │
 │  & Prompts          & Ingestion       Generation        & Correlation   │
 │                                                                         │
-│   Wendy           Sahasra              Vishva            Daniil         │
+│   Sahasra           Wendy              Vishva            Daniil         │
 │  ──────────         ─────────         ─────────        ─────────        │
 │                 
 │                                                                         │
