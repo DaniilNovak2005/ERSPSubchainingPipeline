@@ -1,0 +1,28 @@
+{
+    "repo_url": "https://gitlab.com/libtiff/libtiff",
+    "full_commit": "f324415f50cb5c90f7712e9dfe69831f5d2ea88d",
+    "src_subdirs": ["libtiff", "tools", "contrib/addtiffo", "test"],
+    "vuln_classes": {
+        "tif_swab.c": ["Byte-Swap Buffer Overflow", "CWE-125/CWE-787", "Medium"],
+        "tif_hash_set.c": ["Hash Set Use-After-Free", "CWE-416", "High"],
+        "tif_write.c": ["Write-Path Use-After-Realloc", "CWE-416", "High"],
+        "tif_predict.c": ["Predictor Codec Type Confusion", "CWE-416", "High"],
+        "tif_print.c": ["Print Function OOB Reads", "CWE-125", "Medium"],
+        "tif_fax3.c": "__special:fax3",
+        "tif_dir.c": ["Directory Structure OOB Write", "CWE-787", "High"],
+        "tif_dirread.c": ["Directory Structure OOB Read", "CWE-125", "High"],
+        "tif_strip.c": ["Strip Calculation OOB", "CWE-125", "Medium"],
+        "tif_overview.c": ["Overview Sampling OOB", "CWE-125", "Medium"],
+        "defer_strile_loading.c": ["Deferred Strile Loading OOB", "CWE-125", "Medium"],
+        "defer_strile_writing.c": ["Deferred Strile Writing OOB", "CWE-125", "Medium"],
+        "tif_aux.c": ["Aux Metadata SEGV", "CWE-476", "Medium"],
+        "tif_close.c": ["Codec Close UAF", "CWE-416", "High"]
+    },
+    "special_rules": {
+        "fax3": {
+            "threshold_line": 1000,
+            "above": ["Fax3 Codec Close UAF", "CWE-416", "High"],
+            "below": ["Fax3 Decode OOB Reads", "CWE-125", "Medium"]
+        }
+    }
+}

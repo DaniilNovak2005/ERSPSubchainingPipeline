@@ -1,0 +1,22 @@
+{
+    "repo_url": "https://gitlab.gnome.org/GNOME/libxml2",
+    "full_commit": "e334a9d661c175203517565c4efae87a6577d5eb",
+    "src_subdirs": ["."],
+    "vuln_classes": {
+        "xmlschemas.c": ["XML Schema Lifecycle UAF", "CWE-416", "High"],
+        "encoding.c": ["Encoding Conversion Buffer Overflow", "CWE-125/CWE-121", "Medium"],
+        "parser.c": ["Parser Use-After-Free", "CWE-416", "High"],
+        "threads.c": ["Thread Mutex UAF", "CWE-416", "High"],
+        "dict.c": ["Dictionary Free UAF", "CWE-416", "High"],
+        "uri.c": ["URI Processing Buffer Overflow", "CWE-125", "Medium"],
+        "HTMLparser.c": ["HTML Parser Memory Safety", "CWE-416/CWE-125", "Medium"],
+        "xmlsave.c": ["XML Save UAF", "CWE-416", "Medium-High"],
+        "relaxng.c": ["RelaxNG Validation Bugs", "CWE-674/CWE-476", "Medium"],
+        "valid.c": ["Type Confusion in xmlWalkRemoveRef", "CWE-843", "Medium"],
+        "pattern.c": ["Pattern OOB Read", "CWE-125", "Medium"],
+        "xmlregexp.c": ["Regexp Debug NULL Deref", "CWE-476", "Low"],
+        "catalog.c": ["Catalog OOM NULL Deref", "CWE-476", "Low"],
+        "c14n.c": ["Integer Overflow in GrowCapacity", "CWE-190", "Low-Medium"],
+        "xpath.c": ["XPath Buffer Overflow", "CWE-121", "Medium"]
+    }
+}

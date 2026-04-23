@@ -1,0 +1,19 @@
+.env
+__pycache__/
+*.pyc
+*.o
+*.a
+*.bc
+*.so
+dataset/
+se_runs/
+sa_outputs/
+specs/
+artifacts/
+
+# Results / output clutter
+*.csv
+*.tsv
+
+# Claude Code session data
+.claude/

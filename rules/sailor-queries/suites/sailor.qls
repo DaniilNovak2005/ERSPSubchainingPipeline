@@ -1,0 +1,99 @@
+# rules/sailor-queries/suites/sailor.qls
+- description: Comprehensive Candidate Generation (Standard + Custom + Integer Overflow + UAF + WMI + Kernel)
+  from: codeql/cpp-queries
+  queries: '.'
+  include:
+    id:
+      # --- Memory Corruption (Standard) ---
+      - cpp/overflow-buffer
+      - cpp/invalid-pointer-deref
+      - cpp/static-buffer-overflow
+      - cpp/offset-use-before-range-check
+      - cpp/unbounded-write
+      - cpp/overrun-read
+      
+      # --- Integer Overflow ---
+      - cpp/integer-multiplication-overflow
+      - cpp/allocation-size-overflow
+      - cpp/comparison-with-wider-type
+      - cpp/signed-overflow-check
+
+      # --- Use-After-Free & Double Free (Standard) ---
+      - cpp/use-after-free                  # CWE-416: Standard UAF
+      - cpp/double-free                     # CWE-415: Standard Double Free
+      - cpp/return-stack-allocated-memory   # CWE-562: Return local stack address
+
+# --- Custom Feeder Rules (KLEE) ---
+# Buffer Issues
+- query: queries/CWE-120_BufferOverflow.ql
+- query: queries/CWE-125_OutOfBoundsRead.ql
+  # Detects fixed-offset cursor lookahead reads (e.g., cur[i]) that lack a remaining-bytes guard such as (end - cur >= i+1)
+- query: queries/CWE-125_CursorLookaheadRead_MissingRemainingBytesCheck.ql
+- query: queries/CWE-787_OutOfBoundsWrite.ql
+- query: queries/CWE-823_OutOfRangePointerOffset.ql
+  # sprintf/snprintf to fixed-size stack buffer with variable-length format args.
+  # Historic: CVE-2025-24928 xmlSnprintfElements, CVE-2025-32415 schema error reporting
+- query: queries/CWE-120_StackBufferOverflow_SprintfSnprintf.ql
+
+# NULL Pointer Dereference
+#   Unchecked return from alloc/create/lookup → SEGV on dereference.
+#   Historic: xmlSaveCtxtInit, xmlSchematronRunTest, xmlXPtrEvalChildSeq SEGVs
+- query: queries/CWE-476_NullDeref_UncheckedReturn.ql
+
+# Uncontrolled Recursion (Stack Exhaustion)
+#   Recursive function without depth guard — crafted deep nesting causes stack overflow.
+#   Historic: CVE-2025-9714 XPath recursion, CVE-2025-8732 SGML catalog, CVE-2017-16932 DTD entity
+- query: queries/CWE-674_UncontrolledRecursion.ql
+
+# Use-After-Free (Standardized Custom Rules)
+- query: queries/CWE-416_UseAfterFree_FreeThenDeref.ql
+- query: queries/CWE-416_UseAfterFree_FreeThenUse.ql
+- query: queries/CWE-416_UseAfterFree_FreeThenCallArg.ql
+- query: queries/CWE-416_UseAfterFree_LookupRemoveUse.ql
+- query: queries/CWE-416_UseAfterFree_FreeThenReturn.ql
+
+# Use-After-Realloc (Stale Pointer After Grow)
+#   Pointer into buffer becomes stale after realloc/grow invalidates old allocation.
+#   Historic: hash.c xmlHashUpdateInternal, dict.c xmlDictLookupInternal
+- query: queries/CWE-416_UseAfterRealloc.ql
+
+# =============================================================================
+# Weird Machine Instruction (WMI) Rules — Multi-step Exploitation Primitives
+# =============================================================================
+# These rules detect the building blocks of UAF exploitation chains like
+# CVE-2024-26808 (Linux Netfilter). Each WMI is a step in the chain:
+#   WMI-1 → WMI-2 → WMI-3 → WMI-4 → Code Execution
+#
+# See README for full WMA/WMI/WMP taxonomy.
+
+# WMI-1: Stale Reference Creation
+#   Object freed without invalidating all pointers to it.
+#   Kernel: kfree(dev) without clearing chain->dev
+- query: queries/WMI-1_StaleReference_FreeWithoutInvalidation.ql
+- query: queries/WMI-1b_StaleReference_IncompleteUnlink.ql
+
+# WMI-2: Information Leak via Type Confusion
+#   Stale pointer dereferenced → reads reclaimed memory as original type.
+#   Kernel: reading chain->dev->name after dev reclaimed by packet_fanout
+- query: queries/WMI-2_TypeConfusionLeak_StaleDeref.ql
+
+# WMI-3: Arbitrary Free via Stale Traversal
+#   Cleanup function follows stale pointer to find objects to free.
+#   Kernel: chain destroy follows stale dev hook list → kfree(attacker_addr)
+- query: queries/WMI-3_ArbitraryFree_StaleTraversal.ql
+
+# WMI-4: Write-What-Where via Reclaim
+#   Freed memory reclaimed by attacker-controlled allocation, then written.
+#   Kernel: reclaim with pipe_buffer, overwrite ops pointer
+- query: queries/WMI-4_WriteWhatWhere_ReclaimOverwrite.ql
+
+# =============================================================================
+# Kernel-Specific: Structural Vulnerability Patterns
+# =============================================================================
+# Cross-subsystem lifetime mismatches and exploitation targets.
+
+# Lifecycle mismatch: pointer stored without refcount, dereferenced in destructor
+- query: queries/KernelLifecycleMismatch_DeviceRefcount.ql
+
+# Exploitation target: struct with function pointers in reclaimable slab
+- query: queries/KernelExploitTarget_FuncPtrInReclaimableStruct.ql
