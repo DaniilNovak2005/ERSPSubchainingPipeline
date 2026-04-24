@@ -195,6 +195,7 @@ echo ""
 # --- Pre-LLM Triage (optional but recommended) ---
 # Look in sailor_engine/ first, then scripts/, then root
 TRIAGE_SCRIPT=""
+TRIAGE_LLM_ASSIST=""
 for candidate in \
     "${SAILOR_ROOT}/sailor_engine/triage_specs.py" \
     "${SAILOR_ROOT}/scripts/triage_specs.py" \
@@ -204,6 +205,17 @@ for candidate in \
         break
     fi
 done
+for candidate in \
+    "${SAILOR_ROOT}/sailor_engine/triage_specs_llm.py" \
+    "${SAILOR_ROOT}/scripts/triage_specs_llm.py" \
+    "${SAILOR_ROOT}/triage_specs_llm.py"; do
+    if [ -f "$candidate" ]; then
+        TRIAGE_LLM_ASSIST="$candidate"
+        break
+    fi
+done
+
+
 
 if [ -n "$TRIAGE_SCRIPT" ]; then
     TRIAGE_ORDER="${SPECS_DIR}/triage_order.txt"
