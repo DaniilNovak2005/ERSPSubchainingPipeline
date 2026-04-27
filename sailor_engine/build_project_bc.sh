@@ -138,10 +138,10 @@ elif [ -f "CMakeLists.txt" ]; then
 
 elif [ -f "Makefile" ]; then
     echo "[*] Detected Bare Makefile"
-    make -j"$(nproc)" || true
+    make -j"$(nproc)" CC=wllvm CXX=wllvm++ || true
 else
     echo "[!] Warning: No configure/CMakeLists/Makefile detected; attempting best-effort make."
-    make -j"$(nproc)" || true
+    make -j"$(nproc)" CC=wllvm CXX=wllvm++ || true
 fi
 
 # --- STEP 3: EXTRACT & CHECK ---

@@ -2494,20 +2494,25 @@ class SliceTools:
         # Copy source to avoid modifying the original, then build with gcc + ASan.
         if not asan_lib and (build_cmd or build_path.exists()):
             asan_cflags = "-fsanitize=address -fno-omit-frame-pointer -g -O0 -w"
-            # Stub out KLEE functions that may have been injected into the original source
-            klee_stubs = (
-                "-Dklee_warning(x)= "
-                "-Dklee_warning_once(x)= "
-                "-Dklee_assert(x)= "
-                "-Dklee_make_symbolic(a,b,c)= "
-                "-Dklee_assume(x)= "
-                "-Dklee_report_error(a,b,c,d)= "
-                "-Dklee_get_obj_size(x)=0 "
-                "-Dklee_check_memory_access(a,b)= "
+            # Write KLEE stubs to a header and use -include to avoid passing
+            # macros with parentheses through make/shell (causes syntax errors).
+            klee_compat_h = replay_dir / "klee_compat.h"
+            klee_compat_h.write_text(
+                "#pragma once\n"
+                "#define klee_warning(x) do{}while(0)\n"
+                "#define klee_warning_once(x) do{}while(0)\n"
+                "#define klee_assert(x) do{}while(0)\n"
+                "#define klee_make_symbolic(a,b,c) do{}while(0)\n"
+                "#define klee_assume(x) do{}while(0)\n"
+                "#define klee_report_error(a,b,c,d) do{}while(0)\n"
+                "#define klee_get_obj_size(x) 0\n"
+                "#define klee_check_memory_access(a,b) do{}while(0)\n",
+                encoding="utf-8",
             )
-            asan_cflags_full = f"{asan_cflags} {klee_stubs}"
+            klee_include_flag = f"-include {klee_compat_h}"
+            asan_cflags_full = f"{asan_cflags} {klee_include_flag}"
             asan_ldflags = "-fsanitize=address"
-            
+
             asan_env = dict(os.environ)
             asan_env["CC"] = "gcc"
             asan_env["CXX"] = "g++"
@@ -2525,8 +2530,18 @@ class SliceTools:
                 shutil.rmtree(str(asan_src), ignore_errors=True)
             original_src = Path(self.ctx.get("src_root_original", str(self.src_root)))
             print(f"    [ASan-Real] Copying source tree from {original_src} to {asan_src}...")
-            shutil.copytree(str(original_src), str(asan_src), symlinks=True,
-                           ignore=shutil.ignore_patterns('*.o', '*.bc', '*.bca', 'asan_build', 'asan_replay'))
+            try:
+                shutil.copytree(str(original_src), str(asan_src), symlinks=True,
+                               ignore=shutil.ignore_patterns(
+                                   '*.o', '*.bc', '*.bca', '*.bc.tmp', '*.o.tmp',
+                                   '*.la', '*.lo', '*.a', '*.so', '*.so.*',
+                                   '.libs', '__pycache__',
+                                   'asan_build', 'asan_replay', 'asan_src',
+                               ))
+            except (shutil.Error, OSError) as _copy_err:
+                print(f"    [ASan-Real] copytree had errors (non-fatal, continuing): {_copy_err}")
+                if not asan_src.exists():
+                    return {"success": False, "error": f"Source copy failed: {_copy_err}"}
             
             cmake_file = asan_src / "CMakeLists.txt"
             configure_script = asan_src / "configure"
@@ -2603,6 +2618,9 @@ class SliceTools:
                         str(configure_script),
                         "--disable-shared", "--enable-static",
                         "--disable-nls", "--disable-werror",
+                        # Disable optional deps that produce unresolvable link errors
+                        # when liblzma/libicu are not installed in the build env.
+                        "--without-lzma", "--without-icu",
                     ]
                 else:
                     # Non-autotools (e.g., FFmpeg) — use minimal flags
@@ -2613,7 +2631,7 @@ class SliceTools:
 
                 print(f"    [ASan-Real] configure ({'autotools' if is_autotools else 'custom'}) + ASan...")
                 rc_cf, _, stderr_cf, _ = run_cmd(
-                    configure_args, timeout=120, cwd=str(asan_src), env=asan_env)
+                    configure_args, timeout=300, cwd=str(asan_src), env=asan_env)
                 
                 if rc_cf == 0:
                     print(f"    [ASan-Real] Configured, running make...")
@@ -2629,12 +2647,17 @@ class SliceTools:
             
             if built_ok and asan_build:
                 # Search for resulting .a/.so (mirror build_project_bc.sh: find . -name "*.a")
+                project_name = self.src_root.name.split("_")[0]
                 for search_dir in [asan_build, asan_src]:
                     for ext in ["*.a", "*.so"]:
                         found = list(search_dir.rglob(ext))
-                        found = [f for f in found if "CMakeFiles" not in str(f) and "asan_replay" not in str(f)]
+                        found = [f for f in found if
+                                 "CMakeFiles" not in str(f) and
+                                 "asan_replay" not in str(f) and
+                                 not f.name.startswith("test") and
+                                 "testdso" not in f.name]
                         if found:
-                            project_name = self.src_root.name.split("_")[0]
+                            # Prefer exact project name match (e.g. libxml2.a over libxml2_a11y.a)
                             matched = [f for f in found if project_name.lower() in f.name.lower()]
                             asan_lib = matched[0] if matched else found[0]
                             print(f"    [ASan-Real] Found ASan library: {asan_lib}")
@@ -2698,13 +2721,25 @@ class SliceTools:
         # === APPROACH 2: Link replay driver against ASan-rebuilt library ===
         if asan_lib and asan_lib.exists():
             print(f"    [ASan-Real] Linking replay driver against {asan_lib.name}...")
-            link_cmd = (["gcc"] + asan_flags + inc_flags + proj_cflags +
-                        c_files + [str(asan_lib), "-o", str(out_bin), 
+            # klee_compat_flags: stub out klee_* symbols in the replay driver itself
+            # (klee_compat.h is passed to make for libxml2 build, but we also need
+            # it when gcc compiles replay_driver.c / stubs.c in the link command).
+            klee_compat_flags = []
+            if klee_compat_h.exists():
+                klee_compat_flags = ["-include", str(klee_compat_h)]
+            # --allow-multiple-definition: stubs.c intentionally redefines functions
+            # that are already in libxml2.a — we want our stub to win, not a link error.
+            link_cmd = (["gcc"] + asan_flags + inc_flags + klee_compat_flags + proj_cflags +
+                        c_files + [str(asan_lib), "-o", str(out_bin),
+                        "-Wl,--allow-multiple-definition",
                         "-lm", "-lz", "-lpthread", "-ldl"])
             rc, stdout, stderr, _ = run_cmd(link_cmd, timeout=120)
             if rc != 0:
+                print(f"    [ASan-Real] gcc link failed: {stderr[:300]}")
                 link_cmd[0] = "clang"
                 rc, stdout, stderr, _ = run_cmd(link_cmd, timeout=120)
+                if rc != 0:
+                    print(f"    [ASan-Real] clang link failed: {stderr[:300]}")
         
         # === APPROACH 3: Link against existing (non-ASan) library ===
         # This still validates the REAL code paths (just without ASan instrumentation
@@ -5826,12 +5861,17 @@ DRIVER PHILOSOPHY — OVERAPPROXIMATE FIRST:
     ctx->input = calloc(1, sizeof(*ctx->input));
     klee_make_symbolic(ctx->input, sizeof(*ctx->input), "input");
     
-    // Buffer: allocate real memory, make content symbolic
-    char *buf = malloc(512);
-    klee_make_symbolic(buf, 512, "buffer");
+    // Buffer: allocate real memory, make content symbolic.
+    // CRITICAL: allocation size MUST equal (end - base).
+    // If end = buf + N but malloc = 512, ASan will NOT fire on reads past N
+    // because bytes N..511 are still within the allocated block.
+    // Use the MINIMUM size that reaches the vulnerable read.
+    int BUF_LEN = 16;             // tune: smallest input that reaches the sink
+    char *buf = malloc(BUF_LEN);
+    klee_make_symbolic(buf, BUF_LEN, "buffer");
     ctx->input->base = buf;
     ctx->input->cur = buf;        // or buf + symbolic_offset
-    ctx->input->end = buf + 512;  // MUST be set!
+    ctx->input->end = buf + BUF_LEN;  // MUST match malloc size exactly!
     
     // Stubs: return SYMBOLIC values
     int some_check_func(...) {
@@ -5850,6 +5890,86 @@ DRIVER CHECKLIST:
   ✓ base, cur, end all point into the SAME buffer allocation
   ✓ Buffer content is symbolic (klee_make_symbolic on the buffer bytes)
   ✓ Stubs on the path return SYMBOLIC values, not hardcoded constants
+
+=== ASAN REPLAY — WHY KLEE SUCCEEDS BUT ASAN FAILS (and how to fix it) ===
+
+  KLEE and ASan have DIFFERENT notions of "out of bounds":
+  - KLEE enforces the LOGICAL bound: `input->end`. Reading cur[N] when cur+N >= end → KLEE flags it.
+  - ASan enforces the ALLOCATION bound: the heap block size. Reading buf[N] when N < malloc_size → ASan is SILENT.
+
+  THE CLASSIC MISTAKE (all OOB/cursor bugs):
+    char *buf = malloc(512);          // 512 bytes allocated
+    input->end = buf + 5;            // logical end at byte 5
+    // KLEE: cur[5] past end → .ptr.err ✓
+    // ASan: cur[5] is buf[5], within the 512-byte block → NO FIRE ✗
+
+  THE FIX — allocation size MUST equal (end - base):
+    int INPUT_LEN = 2;               // exactly as many bytes as valid input
+    char *buf = malloc(INPUT_LEN);   // ASan redzone starts at buf[INPUT_LEN]
+    buf[0] = '<'; buf[1] = '?';
+    input->base = buf;
+    input->cur  = buf;
+    input->end  = buf + INPUT_LEN;   // logical end == allocation end
+    // Now: reading cur[2] → buf[2] → PAST the malloc → ASan fires ✓
+
+  RULE: For any cursor/stream buffer, set INPUT_LEN to the MINIMUM byte count that
+  reaches the vulnerable NXT(i)/cur[i] read, then allocate EXACTLY that many bytes.
+  After the parser advances cur by K bytes with SKIP(K) or ADVANCE(K), the next
+  read at cur[0] goes past the allocation → ASan heap-buffer-overflow.
+
+  CONCRETE PATH THINKING — design your driver for BOTH KLEE and ASan:
+  Ask yourself: "If I replace klee_make_symbolic with these fixed bytes, would a
+  real program crash with ASan?" If the answer is NO (because the buffer is padded),
+  shrink the allocation until the answer is YES.
+
+  QUICK GUIDE by bug type:
+
+  CWE-125 / CWE-120 (OOB read/write via cursor):
+    → Allocate EXACTLY `N` bytes where N = the offset of the first OOB access.
+    → Set end = buf + N. Any read at cur[0] after N advances triggers ASan.
+    → Example for NXT(1) bug: buf = malloc(1), buf[0]='<', end=buf+1.
+       After parser reads cur[0] and tries cur[1] → heap-buffer-overflow.
+
+  CWE-416 (use-after-free):
+    → The KLEE harness already triggers the UAF path correctly.
+    → For ASan: ensure the freed object is NOT nullified before the use.
+      If the real code does `free(p); p = NULL;` the bug is not reachable.
+    → Do NOT allocate large padded buffers around freed objects — they confuse ASan.
+
+  CWE-416 use-after-realloc:
+    → After realloc(), the OLD pointer is invalid even if realloc returned the same address.
+    → ASan may not catch this on identical addresses. To help ASan: between the old alloc
+      and the realloc, force a different allocation so addresses differ:
+        void *dummy = malloc(old_size);  // push allocator to a new address
+        ptr = realloc(ptr, new_size);    // now ptr != old_ptr → ASan detects stale use
+
+  CWE-674 (uncontrolled recursion / stack overflow):
+    → KLEE detects infinite recursion symbolically. ASan alone does NOT catch stack overflows.
+    → To confirm with ASan: set a tight stack limit before running:
+        ulimit -s 1024   # 1MB stack, run the replay, expect SIGSEGV
+    → Or compile with -fsanitize=address,undefined and check for stack-size errors.
+    → Alternative: count recursive calls with a global counter and assert depth < MAX.
+
+  CRITICAL: "concretized symbolic size" / "huge malloc" — KLEE produces empty ktests:
+    → This happens when a symbolic variable flows into malloc/memcpy/realloc SIZE argument.
+    → KLEE cannot explore paths with symbolic sizes → it concretizes them → ktest has no data.
+    → ASan replay gets no concrete input → replay driver is never built → ASan never fires.
+
+    WRONG (causes empty ktests):
+      int len;
+      klee_make_symbolic(&len, sizeof(len), "len");
+      klee_assume(len > 1 && len < 32);
+      xmlStrncatNew(str1, str2, len);   // len used as copy size → concretized
+
+    RIGHT (keep sizes concrete, make CONTENT symbolic if needed):
+      int len = 31;                     // concrete — larger than str2 allocation
+      xmlChar *str2 = malloc(2);        // exact allocation — ASan redzone at byte 2
+      str2[0] = 'B'; str2[1] = 0;
+      xmlStrncatNew(str1, str2, len);   // len=31 reads 29 bytes past str2 → ASan fires
+
+    RULE: If a parameter controls both the ALLOCATION SIZE and the READ/WRITE LENGTH,
+    keep it CONCRETE and set it to a value that exceeds the actual allocation.
+    Make the CONTENT symbolic (buffer bytes), not the SIZE.
 
 === CWE-416/415 USE-AFTER-FREE & DOUBLE-FREE (WMI patterns) ===
 

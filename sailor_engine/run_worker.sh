@@ -79,6 +79,35 @@ touch "$VALIDATION_LOG"
 STEM="$(basename "${SPEC_FILE}" .json)"
 RUN_DIR="${MODE_ROOT}/${STEM}"
 
+# --- Force re-run check ---
+# FORCE_SPECS is a comma-separated list of spec ID prefixes (e.g. "550,564,476")
+# If the current spec's numeric prefix matches, wipe its state and re-run.
+_FORCE=0
+if [ -n "${FORCE_SPECS:-}" ]; then
+    SPEC_NUM="${STEM%%_*}"
+    IFS=',' read -ra _FORCE_IDS <<< "${FORCE_SPECS}"
+    for _fid in "${_FORCE_IDS[@]}"; do
+        if [ "${SPEC_NUM}" = "${_fid// /}" ]; then
+            _FORCE=1
+            break
+        fi
+    done
+fi
+
+if [ "${_FORCE}" = "1" ]; then
+    echo "[FORCE] ${STEM}: forcing re-run"
+    # Strip from summary.tsv
+    if [ -f "$SUMMARY_TSV" ]; then
+        awk -F'\t' -v stem="$STEM" '$1!=stem' "$SUMMARY_TSV" > "${SUMMARY_TSV}.${STEM}.tmp" && mv "${SUMMARY_TSV}.${STEM}.tmp" "$SUMMARY_TSV"
+    fi
+    # Strip from validation_summary.tsv
+    if [ -f "$VALIDATION_LOG" ]; then
+        awk -F'\t' -v stem="$STEM" '$1!=stem' "$VALIDATION_LOG" > "${VALIDATION_LOG}.${STEM}.tmp" && mv "${VALIDATION_LOG}.${STEM}.tmp" "$VALIDATION_LOG"
+    fi
+    # Wipe run directory
+    rm -rf "$RUN_DIR"
+fi
+
 # --- Skip Already-Completed Specs ---
 if [ -f "$SUMMARY_TSV" ]; then
     EXISTING_VERDICT=$(awk -F'\t' -v stem="$STEM" '$1==stem {print $2; exit}' "$SUMMARY_TSV")

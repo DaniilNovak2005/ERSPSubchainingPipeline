@@ -1,4 +1,0 @@
-name: local/sailorqueries
-version: 0.0.1
-dependencies:
-  codeql/cpp-all: "~1.0.0"
