@@ -10,10 +10,11 @@ se_runs/
 sa_outputs/
 specs/
 artifacts/
+asan_build
 
-# Results / output clutter
 *.csv
 *.tsv
+*.ql
 
-# Claude Code session data
 .claude/
+rules/
