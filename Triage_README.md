@@ -28,7 +28,25 @@ SINK_CWES    = {"122", "125", "416", "787", "823", "824", "908", "415", "121"}
 ```
 
 ## LLM Step
-The LLM is given ~10 lines of code around the vulnerability
+The LLM is given some (~10) lines of code around the vulnerability for 50 specs per batch.
+
+```
+--- SPECS ---
+[S0001]
+  file: print-bgp.c:1248  cwe: 120
+  calls: memcpy, EXTRACT_16BITS
+  ptrs:  bp, snapend
+  lens:  len
+  ctx:
+    >>>  1245:     if (len > 0) {
+         1246:         if (!ND_TTEST2(bp, len))
+         1247:             goto trunc;
+    >>>  1248:         memcpy(buf, bp, len);
+         1249:         buf[len] = '\0';
+         1250:     }
+
+```
+Per batch, it compares the specs' signals and infers whether they are part of a chain.
 
 ## LLM Scoring Criteria
 90–100  DEFINITE: Explicit shared pointer + composable CWE pair + same call chain
