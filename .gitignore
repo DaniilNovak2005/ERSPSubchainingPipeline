@@ -18,3 +18,4 @@ asan_build
 
 .claude/
 rules/
+manual_replay/
